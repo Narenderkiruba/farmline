@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>FarmLine GPS</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&family=Barlow:wght@300;400;500;600&display=swap');
+
+  :root {
+    --soil: #0e1a0a;
+    --lime: #8bc34a;
+    --amber: #f5a623;
+    --warn: #ff6b35;
+    --panel: rgba(8,18,5,0.92);
+    --border: rgba(139,195,74,0.22);
+    --glow: rgba(139,195,74,0.45);
+    --red: #e53935;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    font-family: 'Barlow', sans-serif;
+    background: var(--soil);
+    color: #cde0a8;
+    height: 100%;
+    overflow: hidden;
+    touch-action: manipulation;
+  }
+
+  /* ── SCREENS ── */
+  .screen { display:none; flex-direction:column; height:100vh; overflow:hidden; }
+  .screen.active { display:flex; }
+
+  /* ══════════════════════════════
+     SCREEN 0 – SPLASH / CONNECT
+  ══════════════════════════════ */
+  #splashScreen {
+    align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at center, #1a3a10 0%, #0a1606 100%);
+    gap: 0;
+  }
+  .splash-logo {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 42px; font-weight: 700;
+    color: var(--lime); letter-spacing: 4px;
+    text-shadow: 0 0 30px var(--glow);
+    margin-bottom: 4px;
+  }
+  .splash-logo span { color: var(--amber); }
+  .splash-sub { color:#5a8040; font-size:13px; letter-spacing:3px; margin-bottom:48px; }
+  .splash-icon { font-size:72px; margin-bottom:20px; animation: float 2.5s ease-in-out infinite; }
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+
+  .gps-status-box {
+    background: rgba(0,0,0,0.4); border:1px solid var(--border);
+    border-radius: 12px; padding: 20px 28px; margin-bottom: 32px;
+    text-align: center; min-width: 260px;
+  }
+  .gps-status-label { font-size:11px; letter-spacing:2px; color:#4a6a30; margin-bottom:8px; }
+  .gps-status-val {
+    font-family:'Share Tech Mono',monospace; font-size:22px;
+    color: var(--amber); margin-bottom:4px;
+  }
+  .gps-acc { font-size:12px; color:#5a8040; }
+
+  .big-btn {
+    padding: 16px 40px; border: none; border-radius: 10px; cursor: pointer;
+    font-family: 'Rajdhani', sans-serif; font-size: 20px; font-weight: 700;
+    letter-spacing: 2px; transition: all .2s; width: 260px; margin-bottom: 12px;
+  }
+  .big-btn-green { background: var(--lime); color: #0a1606; }
+  .big-btn-green:hover, .big-btn-green:active { background:#a5d96a; transform:scale(0.98); }
+  .big-btn-outline { background: transparent; color:var(--lime); border:2px solid var(--border); font-size:15px; padding:12px; }
+  .big-btn-outline:active { background:rgba(139,195,74,0.1); }
+
+  .perm-note { font-size:12px; color:#3a5a25; text-align:center; max-width:260px; line-height:1.6; margin-top:8px; }
+
+  /* ══════════════════════════════
+     SCREEN 1 – MAIN FIELD MAP
+  ══════════════════════════════ */
+  #mainScreen { position: relative; }
+
+  /* Top bar */
+  .topbar {
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.7);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0; z-index:10; gap:8px;
+  }
+  .logo-sm {
+    font-family:'Rajdhani',sans-serif; font-size:18px; font-weight:700;
+    color:var(--lime); letter-spacing:2px; white-space:nowrap;
+  }
+  .logo-sm span { color:var(--amber); }
+  .gps-pill {
+    display:flex; align-items:center; gap:5px;
+    background:rgba(0,0,0,0.4); border:1px solid var(--border);
+    border-radius:20px; padding:4px 10px;
+    font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--lime);
+  }
+  .gpsdot { width:7px;height:7px;border-radius:50%;background:var(--lime); }
+  .gpsdot.searching { background:var(--amber); animation:pulse 1s infinite; }
+  .gpsdot.lost { background:var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+
+  .acc-badge {
+    font-family:'Share Tech Mono',monospace; font-size:11px;
+    padding:3px 8px; border-radius:4px; border:1px solid var(--border);
+    white-space:nowrap;
+  }
+  .acc-good { color:var(--lime); border-color:rgba(139,195,74,0.4); }
+  .acc-ok   { color:var(--amber); border-color:rgba(245,166,35,0.4); }
+  .acc-bad  { color:var(--red); border-color:rgba(229,57,53,0.4); }
+
+  /* Canvas */
+  #fieldCanvas {
+    position:absolute; top:0;left:0; width:100%;height:100%;
+    touch-action: none;
+  }
+
+  /* Floating coord display */
+  .coord-hud {
+    position:absolute; top:54px; left:10px;
+    background:var(--panel); border:1px solid var(--border);
+    border-radius:8px; padding:8px 12px;
+    font-family:'Share Tech Mono',monospace; font-size:11px;
+    z-index:5; line-height:1.8;
+  }
+  .coord-hud .ch-row { display:flex; justify-content:space-between; gap:16px; }
+  .ch-k { color:#4a7a30; } .ch-v { color:#fff; }
+
+  /* Row info HUD (right side) */
+  .row-hud {
+    position:absolute; top:54px; right:10px;
+    background:var(--panel); border:1px solid var(--border);
+    border-radius:8px; padding:8px 12px;
+    font-family:'Share Tech Mono',monospace; font-size:11px;
+    z-index:5; line-height:1.8; text-align:right;
+  }
+
+  /* ── BOTTOM PANEL ── */
+  .bottom-panel {
+    position:absolute; bottom:0; left:0; right:0;
+    background: rgba(5,12,3,0.95);
+    border-top: 1px solid var(--border);
+    z-index: 10; padding: 10px 12px 16px;
+  }
+
+  /* Mode tabs */
+  .mode-tabs {
+    display:flex; gap:6px; margin-bottom:10px;
+  }
+  .tab {
+    flex:1; padding:7px; border:1px solid var(--border);
+    border-radius:6px; background:transparent;
+    color:#4a6a30; font-family:'Rajdhani',sans-serif;
+    font-size:13px; font-weight:600; letter-spacing:1px; cursor:pointer;
+    transition:all .15s;
+  }
+  .tab.active { background:rgba(139,195,74,0.15); border-color:var(--lime); color:var(--lime); }
+
+  /* Action buttons */
+  .action-row { display:flex; gap:8px; margin-bottom:8px; }
+  .act-btn {
+    flex:1; padding:12px 6px; border:none; border-radius:8px; cursor:pointer;
+    font-family:'Rajdhani',sans-serif; font-size:14px; font-weight:700;
+    letter-spacing:1px; transition:all .15s;
+  }
+  .act-btn:active { transform:scale(0.96); }
+  .btn-mark   { background:var(--lime); color:#0a1606; }
+  .btn-pause  { background:rgba(245,166,35,0.2); color:var(--amber); border:1px solid rgba(245,166,35,0.4); }
+  .btn-undo   { background:rgba(229,57,53,0.15); color:#ef9a9a; border:1px solid rgba(229,57,53,0.3); }
+  .btn-clear  { background:rgba(229,57,53,0.15); color:var(--red); border:1px solid rgba(229,57,53,0.3); }
+
+  /* Status bar */
+  .status-strip {
+    display:flex; gap:0; border:1px solid var(--border); border-radius:6px; overflow:hidden;
+  }
+  .ss-item {
+    flex:1; text-align:center; padding:5px 4px;
+    border-right:1px solid var(--border);
+    font-family:'Share Tech Mono',monospace;
+  }
+  .ss-item:last-child { border-right:none; }
+  .ss-val { font-size:14px; color:var(--amber); font-weight:bold; }
+  .ss-lbl { font-size:9px; color:#3a5a20; letter-spacing:1px; }
+
+  /* Alert message */
+  .alert-msg {
+    margin-top:7px; font-size:12px; color:#6a9050;
+    text-align:center; min-height:16px;
+    font-family:'Share Tech Mono',monospace;
+  }
+
+  /* ══════════════════════════════
+     SCREEN 2 – SETTINGS
+  ══════════════════════════════ */
+  #settingsScreen {
+    background: var(--soil);
+  }
+  .settings-header {
+    display:flex; align-items:center; gap:12px;
+    padding:12px 16px;
+    background:rgba(0,0,0,0.5); border-bottom:1px solid var(--border);
+    flex-shrink:0;
+  }
+  .back-btn {
+    background:transparent; border:1px solid var(--border);
+    color:var(--lime); padding:6px 14px; border-radius:6px;
+    font-family:'Rajdhani',sans-serif; font-size:14px; font-weight:600;
+    cursor:pointer;
+  }
+  .settings-title { font-family:'Rajdhani',sans-serif; font-size:20px; font-weight:700; color:var(--lime); }
+
+  .settings-body { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:16px; }
+
+  .scard {
+    background:rgba(0,0,0,0.35); border:1px solid var(--border);
+    border-radius:10px; padding:14px;
+  }
+  .scard-title {
+    font-family:'Rajdhani',sans-serif; font-size:12px; letter-spacing:2px;
+    color:var(--lime); margin-bottom:12px; text-transform:uppercase;
+  }
+  .srow { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .srow:last-child { margin-bottom:0; }
+  .slabel { font-size:14px; color:#9ab080; }
+  .sval { font-family:'Share Tech Mono',monospace; color:var(--amber); font-size:14px; min-width:52px; text-align:right; }
+
+  input[type=range] {
+    width:100%; accent-color:var(--lime); height:4px; margin-top:6px; cursor:pointer;
+  }
+  select {
+    background:rgba(0,0,0,0.5); border:1px solid var(--border);
+    color:#cde0a8; font-size:14px; padding:6px 10px;
+    border-radius:6px; width:100%; margin-top:6px; outline:none;
+  }
+
+  /* ══════════════════════════════
+     SCREEN 3 – ROW LIST
+  ══════════════════════════════ */
+  #rowsScreen { background: var(--soil); }
+  .rows-body { flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:8px; }
+  .row-card {
+    background:rgba(0,0,0,0.35); border:1px solid var(--border);
+    border-radius:8px; padding:12px;
+    display:flex; align-items:center; gap:12px;
+  }
+  .row-card.row-active { border-color:var(--lime); background:rgba(139,195,74,0.06); }
+  .row-num {
+    width:32px; height:32px; border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Rajdhani',sans-serif; font-size:14px; font-weight:700;
+    background:rgba(139,195,74,0.15); color:var(--lime); flex-shrink:0;
+  }
+  .row-info { flex:1; }
+  .row-card-title { font-size:14px; color:#fff; margin-bottom:2px; }
+  .row-card-meta { font-family:'Share Tech Mono',monospace; font-size:11px; color:#5a8040; }
+  .row-dist { font-family:'Share Tech Mono',monospace; font-size:16px; color:var(--amber); font-weight:bold; }
+
+  /* Export button */
+  .export-btn {
+    margin:12px; padding:12px; border:1px solid var(--border); border-radius:8px;
+    background:rgba(139,195,74,0.08); color:var(--lime);
+    font-family:'Rajdhani',sans-serif; font-size:16px; font-weight:600;
+    letter-spacing:1px; cursor:pointer; text-align:center;
+  }
+  .export-btn:active { background:rgba(139,195,74,0.2); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width:4px; }
+  ::-webkit-scrollbar-thumb { background:rgba(139,195,74,0.25); border-radius:2px; }
+</style>
+</head>
+<body>
+
+<!-- ══ SCREEN 0: SPLASH ══ -->
+<div class="screen active" id="splashScreen">
+  <div class="splash-icon">🚜</div>
+  <div class="splash-logo">FARM<span>LINE</span></div>
+  <div class="splash-sub">GPS PLANTING ROW MARKER</div>
+
+  <div class="gps-status-box">
+    <div class="gps-status-label">PHONE GPS STATUS</div>
+    <div class="gps-status-val" id="splashGpsStatus">WAITING…</div>
+    <div class="gps-acc" id="splashAcc">Press "Connect GPS" to start</div>
+  </div>
+
+  <button class="big-btn big-btn-green" onclick="connectGPS()">📡 CONNECT GPS</button>
+  <button class="big-btn big-btn-outline" onclick="demoMode()">▶ DEMO MODE (No GPS)</button>
+  <div class="perm-note">Your phone's built-in GPS is used. No internet or extra hardware needed. Allow location permission when prompted.</div>
+</div>
+
+<!-- ══ SCREEN 1: MAIN MAP ══ -->
+<div class="screen" id="mainScreen">
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="logo-sm">FARM<span>LINE</span></div>
+    <div class="gps-pill">
+      <div class="gpsdot searching" id="gpsDot"></div>
+      <span id="gpsLabel">SEARCHING</span>
+    </div>
+    <div class="acc-badge acc-ok" id="accBadge">±— m</div>
+    <button style="background:transparent;border:1px solid var(--border);color:var(--lime);padding:4px 10px;border-radius:5px;font-family:Rajdhani,sans-serif;font-size:13px;cursor:pointer;" onclick="showScreen('settingsScreen')">⚙</button>
+  </div>
+
+  <!-- Canvas -->
+  <canvas id="fieldCanvas"></canvas>
+
+  <!-- Coord HUD -->
+  <div class="coord-hud">
+    <div class="ch-row"><span class="ch-k">LAT</span><span class="ch-v" id="hudLat">—</span></div>
+    <div class="ch-row"><span class="ch-k">LON</span><span class="ch-v" id="hudLon">—</span></div>
+    <div class="ch-row"><span class="ch-k">ALT</span><span class="ch-v" id="hudAlt">— m</span></div>
+  </div>
+
+  <!-- Row HUD -->
+  <div class="row-hud">
+    <div class="ch-row"><span class="ch-k">ROW&nbsp;</span><span class="ch-v" id="hudRow">—</span></div>
+    <div class="ch-row"><span class="ch-k">LEN&nbsp;</span><span class="ch-v" id="hudLen">— m</span></div>
+    <div class="ch-row"><span class="ch-k">BEAR</span><span class="ch-v" id="hudBear">—°</span></div>
+  </div>
+
+  <!-- Bottom panel -->
+  <div class="bottom-panel">
+    <!-- Mode tabs -->
+    <div class="mode-tabs">
+      <button class="tab active" id="tabMark" onclick="setMode('mark')">MARK ROW</button>
+      <button class="tab" id="tabGuide" onclick="setMode('guide')">GUIDANCE</button>
+      <button class="tab" id="tabRows" onclick="showScreen('rowsScreen')">ROWS LIST</button>
+    </div>
+
+    <!-- Mark mode -->
+    <div id="panelMark">
+      <div class="action-row">
+        <button class="act-btn btn-mark" id="markBtn" onclick="handleMarkBtn()">📍 SET POINT A</button>
+        <button class="act-btn btn-undo" onclick="undoLast()">↩ UNDO</button>
+        <button class="act-btn btn-clear" onclick="clearAll()">✕</button>
+      </div>
+      <div class="status-strip">
+        <div class="ss-item"><div class="ss-val" id="ssRows">0</div><div class="ss-lbl">ROWS</div></div>
+        <div class="ss-item"><div class="ss-val" id="ssDist">0</div><div class="ss-lbl">METERS</div></div>
+        <div class="ss-item"><div class="ss-val" id="ssSpacing">45</div><div class="ss-lbl">CM GAP</div></div>
+        <div class="ss-item"><div class="ss-val" id="ssArea">0.0</div><div class="ss-lbl">ACRES</div></div>
+      </div>
+    </div>
+
+    <!-- Guide mode -->
+    <div id="panelGuide" style="display:none">
+      <div style="background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:8px;">
+        <div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:#4a7a30;margin-bottom:6px;">LATERAL OFFSET FROM ROW</div>
+        <div style="font-size:36px;font-family:'Rajdhani',sans-serif;font-weight:700;text-align:center;" id="guideOffset">— m</div>
+        <div id="guideBar" style="height:8px;background:#1a2a10;border-radius:4px;margin-top:6px;position:relative;">
+          <div id="guideIndicator" style="position:absolute;top:-2px;width:12px;height:12px;border-radius:50%;background:var(--lime);transform:translateX(-50%);left:50%;transition:left .3s;"></div>
+          <div style="position:absolute;left:50%;top:0;width:2px;height:8px;background:rgba(255,255,255,0.2);"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:#3a5a20;margin-top:2px;font-family:'Share Tech Mono',monospace;">
+          <span>2m L</span><span>ON LINE</span><span>2m R</span>
+        </div>
+      </div>
+      <div class="status-strip">
+        <div class="ss-item"><div class="ss-val" id="guideRow">—</div><div class="ss-lbl">CURR ROW</div></div>
+        <div class="ss-item"><div class="ss-val" id="guideNext">—</div><div class="ss-lbl">NEXT ROW</div></div>
+        <div class="ss-item"><div class="ss-val" id="guideDist">—</div><div class="ss-lbl">AHEAD m</div></div>
+      </div>
+    </div>
+
+    <div class="alert-msg" id="alertMsg">Press "SET POINT A" at your row start position</div>
+  </div>
+</div>
+
+<!-- ══ SCREEN 2: SETTINGS ══ -->
+<div class="screen" id="settingsScreen">
+  <div class="settings-header">
+    <button class="back-btn" onclick="showScreen('mainScreen')">← BACK</button>
+    <div class="settings-title">SETTINGS</div>
+  </div>
+  <div class="settings-body">
+
+    <div class="scard">
+      <div class="scard-title">🌱 Crop & Planting</div>
+      <div class="slabel">Crop Type</div>
+      <select id="cropSel" onchange="updateCrop()">
+        <option value="wheat">🌾 Wheat</option>
+        <option value="corn">🌽 Corn / Maize</option>
+        <option value="rice">🍚 Rice</option>
+        <option value="cotton">Cotton</option>
+        <option value="sugarcane">Sugarcane</option>
+        <option value="soybean">Soybean</option>
+      </select>
+
+      <div style="margin-top:14px;">
+        <div class="srow">
+          <span class="slabel">Row Spacing</span>
+          <span class="sval" id="spacingDisp">45 cm</span>
+        </div>
+        <input type="range" min="20" max="150" value="45" oninput="updateSpacing(this.value)" id="spacingSlider">
+      </div>
+
+      <div style="margin-top:14px;">
+        <div class="srow">
+          <span class="slabel">Rows per Pass</span>
+          <span class="sval" id="passDisp">1</span>
+        </div>
+        <input type="range" min="1" max="8" value="1" oninput="updatePass(this.value)" id="passSlider">
+      </div>
+    </div>
+
+    <div class="scard">
+      <div class="scard-title">📡 GPS Settings</div>
+      <div class="slabel">GPS Update Rate</div>
+      <select id="gpsRate">
+        <option value="1000">Every 1 second</option>
+        <option value="500" selected>Every 0.5 sec (best)</option>
+        <option value="2000">Every 2 sec (battery save)</option>
+      </select>
+      <div style="margin-top:12px;font-size:12px;color:#4a6a30;line-height:1.7;">
+        📌 For best accuracy: place phone flat on tractor dashboard, away from metal. Keep screen on. Use outdoors with clear sky view.
+      </div>
+    </div>
+
+    <div class="scard">
+      <div class="scard-title">🗺 Display</div>
+      <div class="slabel">Map Zoom</div>
+      <select id="zoomSel" onchange="updateZoom()">
+        <option value="0.5">Small field (50m view)</option>
+        <option value="1" selected>Medium field (100m view)</option>
+        <option value="2">Large field (200m view)</option>
+        <option value="5">Very large (500m view)</option>
+      </select>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══ SCREEN 3: ROW LIST ══ -->
+<div class="screen" id="rowsScreen">
+  <div class="settings-header">
+    <button class="back-btn" onclick="showScreen('mainScreen')">← BACK</button>
+    <div class="settings-title">MARKED ROWS</div>
+  </div>
+  <div class="rows-body" id="rowsBody">
+    <div style="color:#3a5a20;text-align:center;padding:30px;font-size:14px;">No rows marked yet</div>
+  </div>
+  <div class="export-btn" onclick="exportCSV()">📥 EXPORT TO CSV FILE</div>
+</div>
+
+<script>
+// ══════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════
+let gpsMode = false; // true = real GPS, false = demo
+let watchId = null;
+let currentPos = null; // { lat, lon, alt, acc }
+let rows = []; // [{ startLat, startLon, endLat, endLon, dist, bearing }]
+let markStep = 0; // 0=waiting A, 1=waiting B
+let pointA = null;
+let rowSpacing = 45; // cm
+let rowsPerPass = 1;
+let cropType = 'wheat';
+let zoomMetersPerPx = 1.0; // 1 meter = how many pixels (will be set by zoom)
+let mapCenter = null; // { lat, lon } — the "origin" of the map
+let originOffset = { x: 0, y: 0 }; // canvas px of mapCenter
+let isDemoMode = false;
+let demoAngle = 0;
+let demoLat = 28.6139, demoLon = 77.2090;
+let demoMoving = false;
+
+const EARTH_R = 6371000;
+
+// ══════════════════════════════════════
+//  SCREEN NAVIGATION
+// ══════════════════════════════════════
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if (id === 'mainScreen') { resizeCanvas(); draw(); }
+  if (id === 'rowsScreen') renderRowList();
+}
+
+// ══════════════════════════════════════
+//  GPS
+// ══════════════════════════════════════
+function connectGPS() {
+  if (!navigator.geolocation) {
+    document.getElementById('splashGpsStatus').textContent = 'NOT SUPPORTED';
+    document.getElementById('splashAcc').textContent = 'Your browser does not support GPS. Use demo mode.';
+    return;
+  }
+  document.getElementById('splashGpsStatus').textContent = 'CONNECTING…';
+  document.getElementById('splashAcc').textContent = 'Allow location permission';
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      onGPSSuccess(pos);
+      gpsMode = true;
+      isDemoMode = false;
+      document.getElementById('splashGpsStatus').textContent = 'CONNECTED ✓';
+      document.getElementById('splashAcc').textContent = `Accuracy: ±${Math.round(pos.coords.accuracy)} m`;
+      setTimeout(() => {
+        showScreen('mainScreen');
+        startWatching();
+      }, 800);
+    },
+    (err) => {
+      document.getElementById('splashGpsStatus').textContent = 'PERMISSION DENIED';
+      document.getElementById('splashAcc').textContent = 'Check phone location settings, or use Demo Mode';
+    },
+    { enableHighAccuracy: true, timeout: 15000 }
+  );
+}
+
+function startWatching() {
+  watchId = navigator.geolocation.watchPosition(
+    onGPSSuccess, onGPSError,
+    { enableHighAccuracy: true, maximumAge: 500, timeout: 10000 }
+  );
+}
+
+function onGPSSuccess(pos) {
+  const { latitude: lat, longitude: lon, altitude: alt, accuracy: acc, heading } = pos.coords;
+  currentPos = { lat, lon, alt: alt || 0, acc };
+  if (!mapCenter) { mapCenter = { lat, lon }; }
+  updateGPSUI(acc);
+  updateHUD();
+  draw();
+  updateGuidePanel();
+}
+
+function onGPSError(err) {
+  document.getElementById('gpsDot').className = 'gpsdot lost';
+  document.getElementById('gpsLabel').textContent = 'LOST';
+  document.getElementById('accBadge').className = 'acc-badge acc-bad';
+  document.getElementById('accBadge').textContent = 'NO SIGNAL';
+}
+
+function updateGPSUI(acc) {
+  const dot = document.getElementById('gpsDot');
+  const badge = document.getElementById('accBadge');
+  const lbl = document.getElementById('gpsLabel');
+  dot.className = 'gpsdot';
+  lbl.textContent = 'GPS LOCK';
+  badge.textContent = `±${Math.round(acc)} m`;
+  if (acc < 5) badge.className = 'acc-badge acc-good';
+  else if (acc < 15) badge.className = 'acc-badge acc-ok';
+  else badge.className = 'acc-badge acc-bad';
+}
+
+function updateHUD() {
+  if (!currentPos) return;
+  document.getElementById('hudLat').textContent = currentPos.lat.toFixed(6) + '°';
+  document.getElementById('hudLon').textContent = currentPos.lon.toFixed(6) + '°';
+  document.getElementById('hudAlt').textContent = Math.round(currentPos.alt) + ' m';
+  document.getElementById('statLat') && (document.getElementById('statLat').textContent = currentPos.lat.toFixed(5));
+  document.getElementById('statLon') && (document.getElementById('statLon').textContent = currentPos.lon.toFixed(5));
+}
+
+// ══════════════════════════════════════
+//  DEMO MODE
+// ══════════════════════════════════════
+function demoMode() {
+  isDemoMode = true;
+  currentPos = { lat: demoLat, lon: demoLon, alt: 214, acc: 3 };
+  mapCenter = { lat: demoLat, lon: demoLon };
+  showScreen('mainScreen');
+  updateGPSUI(3);
+  document.getElementById('gpsLabel').textContent = 'DEMO';
+  updateHUD();
+  // Simulate tractor movement
+  setInterval(simulateTractor, 600);
+}
+
+function simulateTractor() {
+  if (!isDemoMode || !demoMoving) return;
+  const speed = 0.000008;
+  demoLat += Math.cos(demoAngle) * speed;
+  demoLon += Math.sin(demoAngle) * speed;
+  currentPos = { lat: demoLat, lon: demoLon, alt: 214, acc: 2 };
+  updateHUD();
+  draw();
+  updateGuidePanel();
+}
+
+// ══════════════════════════════════════
+//  CANVAS
+// ══════════════════════════════════════
+const canvas = document.getElementById('fieldCanvas');
+const ctx = canvas.getContext('2d');
+let CW, CH;
+
+function resizeCanvas() {
+  CW = canvas.offsetWidth;
+  CH = canvas.offsetHeight;
+  canvas.width = CW;
+  canvas.height = CH;
+  originOffset = { x: CW/2, y: CH/2 };
+}
+window.addEventListener('resize', () => { resizeCanvas(); draw(); });
+
+// Convert GPS lat/lon → canvas px
+function latLonToXY(lat, lon) {
+  if (!mapCenter) return { x: CW/2, y: CH/2 };
+  const zoom = parseFloat(document.getElementById('zoomSel')?.value || 1);
+  const mPerPx = zoom; // 1 pixel = `zoom` meters
+  const dLat = lat - mapCenter.lat;
+  const dLon = lon - mapCenter.lon;
+  const dy = dLat * EARTH_R * Math.PI / 180;
+  const dx = dLon * EARTH_R * Math.PI / 180 * Math.cos(mapCenter.lat * Math.PI / 180);
+  return {
+    x: originOffset.x + dx / mPerPx,
+    y: originOffset.y - dy / mPerPx
+  };
+}
+
+function draw() {
+  if (!CW) resizeCanvas();
+  ctx.clearRect(0,0,CW,CH);
+  drawBackground();
+  drawScaleBar();
+  drawRows();
+  drawTractor();
+  drawPointA();
+}
+
+function drawBackground() {
+  let g = ctx.createRadialGradient(CW/2, CH/2, 0, CW/2, CH/2, Math.max(CW,CH)*0.8);
+  g.addColorStop(0,'#1c380e');
+  g.addColorStop(1,'#0a1806');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,CW,CH);
+
+  // Grid lines (approximate 10m intervals)
+  const zoom = parseFloat(document.getElementById('zoomSel')?.value || 1);
+  const pxPer10m = 10 / zoom;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(139,195,74,0.06)';
+  ctx.lineWidth = 1;
+  for (let x = (originOffset.x % pxPer10m); x < CW; x += pxPer10m) {
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,CH); ctx.stroke();
+  }
+  for (let y = (originOffset.y % pxPer10m); y < CH; y += pxPer10m) {
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(CW,y); ctx.stroke();
+  }
+  // Cross at center
+  ctx.strokeStyle = 'rgba(139,195,74,0.15)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(originOffset.x,0); ctx.lineTo(originOffset.x,CH); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,originOffset.y); ctx.lineTo(CW,originOffset.y); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function drawScaleBar() {
+  const zoom = parseFloat(document.getElementById('zoomSel')?.value || 1);
+  const barMeters = zoom <= 1 ? 10 : zoom <= 2 ? 20 : 50;
+  const barPx = barMeters / zoom;
+  const bx = 12, by = CH - 70;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(139,195,74,0.6)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(bx, by); ctx.lineTo(bx + barPx, by);
+  ctx.moveTo(bx, by-4); ctx.lineTo(bx, by+4);
+  ctx.moveTo(bx+barPx, by-4); ctx.lineTo(bx+barPx, by+4);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(139,195,74,0.7)';
+  ctx.font = '11px Share Tech Mono, monospace';
+  ctx.fillText(barMeters + 'm', bx + barPx/2 - 10, by - 7);
+  ctx.restore();
+}
+
+function drawRows() {
+  rows.forEach((row, i) => {
+    const p1 = latLonToXY(row.startLat, row.startLon);
+    const p2 = latLonToXY(row.endLat, row.endLon);
+    const cropCol = { wheat:'#c8a84b', corn:'#f5c518', rice:'#a8d08a', cotton:'#e8e8e8', sugarcane:'#5ba85e', soybean:'#8ab04a' };
+    const col = cropCol[cropType] || '#8bc34a';
+
+    ctx.save();
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = col; ctx.shadowBlur = 6;
+    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Dots
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(p1.x, p1.y, 5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(p2.x, p2.y, 5, 0, Math.PI*2); ctx.fill();
+
+    // Label
+    const mx = (p1.x+p2.x)/2, my = (p1.y+p2.y)/2;
+    ctx.fillStyle = 'rgba(8,18,5,0.7)';
+    ctx.fillRect(mx-14, my-20, 28, 14);
+    ctx.fillStyle = col;
+    ctx.font = 'bold 10px Barlow, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`R${i+1}`, mx, my-9);
+    ctx.textAlign = 'left';
+    ctx.restore();
+
+    // Planned parallel lines
+    drawParallelLines(row, i);
+  });
+}
+
+function drawParallelLines(row, idx) {
+  if (rows.length === 0) return;
+  const zoom = parseFloat(document.getElementById('zoomSel')?.value || 1);
+  const spacingPx = (rowSpacing / 100) / zoom; // spacing in pixels
+  const angle = row.bearing * Math.PI / 180;
+  const perpX = Math.cos(angle + Math.PI/2);
+  const perpY = -Math.sin(angle + Math.PI/2);
+
+  const p1 = latLonToXY(row.startLat, row.startLon);
+  const p2 = latLonToXY(row.endLat, row.endLon);
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(139,195,74,0.15)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([5,7]);
+  for (let i = 1; i <= 6; i++) {
+    const off = i * spacingPx;
+    [-1, 1].forEach(sign => {
+      const ox = perpX * off * sign;
+      const oy = perpY * off * sign;
+      ctx.beginPath();
+      ctx.moveTo(p1.x + ox, p1.y + oy);
+      ctx.lineTo(p2.x + ox, p2.y + oy);
+      ctx.stroke();
+    });
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function drawTractor() {
+  if (!currentPos || !mapCenter) return;
+  const {x, y} = latLonToXY(currentPos.lat, currentPos.lon);
+
+  ctx.save();
+  // Accuracy circle
+  const zoom = parseFloat(document.getElementById('zoomSel')?.value || 1);
+  const accPx = currentPos.acc / zoom;
+  ctx.strokeStyle = 'rgba(139,195,74,0.15)';
+  ctx.fillStyle = 'rgba(139,195,74,0.05)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(x, y, accPx, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+
+  ctx.translate(x, y);
+  ctx.rotate(demoAngle);
+
+  // Body
+  ctx.fillStyle = '#c8960a'; ctx.fillRect(-9,-13,18,26);
+  // Cab
+  ctx.fillStyle = '#e8b020'; ctx.fillRect(-6,-13,12,12);
+  // Wheels
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(-13,-9,6,9); ctx.fillRect(7,-9,6,9);
+  ctx.fillRect(-11,3,5,8); ctx.fillRect(6,3,5,8);
+  // GPS beacon
+  ctx.fillStyle = '#8bc34a';
+  ctx.shadowColor = '#8bc34a'; ctx.shadowBlur = 8;
+  ctx.beginPath(); ctx.arc(0,-17,4,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.restore();
+}
+
+function drawPointA() {
+  if (!pointA || markStep !== 1) return;
+  const {x, y} = latLonToXY(pointA.lat, pointA.lon);
+  ctx.save();
+  ctx.fillStyle = 'rgba(245,166,35,0.9)';
+  ctx.strokeStyle = '#f5a623';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI*2);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 11px Barlow';
+  ctx.textAlign = 'center';
+  ctx.fillText('A', x, y+4);
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
+
+// ══════════════════════════════════════
+//  MARKING LOGIC
+// ══════════════════════════════════════
+function handleMarkBtn() {
+  if (!currentPos) {
+    setAlert('⚠ Waiting for GPS signal…'); return;
+  }
+  if (markStep === 0) {
+    // Set point A
+    pointA = { lat: currentPos.lat, lon: currentPos.lon };
+    markStep = 1;
+    document.getElementById('markBtn').textContent = '📍 SET POINT B';
+    document.getElementById('markBtn').style.background = 'var(--amber)';
+    document.getElementById('markBtn').style.color = '#000';
+    setAlert(`✅ Point A set at ${pointA.lat.toFixed(5)}, ${pointA.lon.toFixed(5)} — Drive to row end, press SET POINT B`);
+    if (isDemoMode) { demoMoving = true; demoAngle = Math.random() * Math.PI; }
+    draw();
+  } else {
+    // Set point B → complete row
+    const B = { lat: currentPos.lat, lon: currentPos.lon };
+    const d = haversine(pointA.lat, pointA.lon, B.lat, B.lon);
+    if (d < 2) {
+      setAlert('⚠ Points too close! Drive further before setting Point B.'); return;
+    }
+    const bear = bearing(pointA.lat, pointA.lon, B.lat, B.lon);
+    rows.push({ startLat: pointA.lat, startLon: pointA.lon, endLat: B.lat, endLon: B.lon, dist: d, bearing: bear });
+    updateStats();
+    pointA = null;
+    markStep = 0;
+    demoMoving = false;
+    document.getElementById('markBtn').textContent = '📍 SET POINT A';
+    document.getElementById('markBtn').style.background = 'var(--lime)';
+    document.getElementById('markBtn').style.color = '#0a1606';
+    setAlert(`✅ Row ${rows.length} marked — ${Math.round(d)} m long, bearing ${Math.round(bear)}°`);
+    draw();
+    document.getElementById('hudRow').textContent = `R${rows.length}`;
+    document.getElementById('hudLen').textContent = `${Math.round(d)} m`;
+    document.getElementById('hudBear').textContent = `${Math.round(bear)}°`;
+  }
+}
+
+function undoLast() {
+  if (markStep === 1) {
+    // Cancel current A
+    pointA = null; markStep = 0; demoMoving = false;
+    document.getElementById('markBtn').textContent = '📍 SET POINT A';
+    document.getElementById('markBtn').style.background = 'var(--lime)';
+    document.getElementById('markBtn').style.color = '#0a1606';
+    setAlert('↩ Point A cancelled.');
+  } else if (rows.length > 0) {
+    rows.pop();
+    updateStats();
+    setAlert(`↩ Last row removed. ${rows.length} rows remaining.`);
+  }
+  draw();
+}
+
+function clearAll() {
+  if (rows.length === 0 && markStep === 0) return;
+  rows = []; pointA = null; markStep = 0; demoMoving = false;
+  document.getElementById('markBtn').textContent = '📍 SET POINT A';
+  document.getElementById('markBtn').style.background = 'var(--lime)';
+  document.getElementById('markBtn').style.color = '#0a1606';
+  updateStats();
+  setAlert('🗑 All rows cleared.');
+  draw();
+}
+
+// ══════════════════════════════════════
+//  GUIDANCE PANEL
+// ══════════════════════════════════════
+function updateGuidePanel() {
+  if (rows.length === 0 || !currentPos) {
+    document.getElementById('guideOffset').textContent = '— m';
+    return;
+  }
+  // Find nearest row
+  let minDist = Infinity, nearIdx = 0;
+  rows.forEach((r, i) => {
+    const d = pointToSegmentDist(currentPos.lat, currentPos.lon, r.startLat, r.startLon, r.endLat, r.endLon);
+    if (d < minDist) { minDist = d; nearIdx = i; }
+  });
+  const off = minDist.toFixed(1);
+  document.getElementById('guideOffset').textContent = off + ' m';
+  document.getElementById('guideOffset').style.color = minDist < 0.5 ? 'var(--lime)' : minDist < 1.5 ? 'var(--amber)' : 'var(--warn)';
+  document.getElementById('guideRow').textContent = `R${nearIdx+1}`;
+  document.getElementById('guideNext').textContent = rows[nearIdx+1] ? `R${nearIdx+2}` : '—';
+  // Indicator bar: -2m to +2m range
+  const pct = Math.min(Math.max((minDist + 2) / 4, 0), 1) * 100;
+  document.getElementById('guideIndicator').style.left = pct + '%';
+}
+
+// ══════════════════════════════════════
+//  SETTINGS HANDLERS
+// ══════════════════════════════════════
+function setMode(m) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('panelMark').style.display = m==='mark' ? '' : 'none';
+  document.getElementById('panelGuide').style.display = m==='guide' ? '' : 'none';
+  document.getElementById('tabMark').classList.toggle('active', m==='mark');
+  document.getElementById('tabGuide').classList.toggle('active', m==='guide');
+}
+
+function updateSpacing(v) {
+  rowSpacing = parseInt(v);
+  document.getElementById('spacingDisp').textContent = v + ' cm';
+  document.getElementById('ssSpacing').textContent = v;
+  draw();
+}
+function updatePass(v) {
+  rowsPerPass = parseInt(v);
+  document.getElementById('passDisp').textContent = v;
+}
+function updateCrop() { cropType = document.getElementById('cropSel').value; draw(); }
+function updateZoom() { draw(); }
+
+function updateStats() {
+  const totalDist = rows.reduce((s,r) => s+r.dist, 0);
+  const area = (totalDist * rowSpacing / 100 / 4047).toFixed(2);
+  document.getElementById('ssRows').textContent = rows.length;
+  document.getElementById('ssDist').textContent = Math.round(totalDist);
+  document.getElementById('ssArea').textContent = area;
+  document.getElementById('ssSpacing').textContent = rowSpacing;
+}
+
+function setAlert(msg) { document.getElementById('alertMsg').textContent = msg; }
+
+// ══════════════════════════════════════
+//  ROW LIST
+// ══════════════════════════════════════
+function renderRowList() {
+  const el = document.getElementById('rowsBody');
+  if (rows.length === 0) {
+    el.innerHTML = '<div style="color:#3a5a20;text-align:center;padding:30px;font-size:14px;">No rows marked yet</div>';
+    return;
+  }
+  el.innerHTML = rows.map((r, i) => `
+    <div class="row-card">
+      <div class="row-num">R${i+1}</div>
+      <div class="row-info">
+        <div class="row-card-title">Row ${i+1}</div>
+        <div class="row-card-meta">${r.startLat.toFixed(5)}, ${r.startLon.toFixed(5)}</div>
+        <div class="row-card-meta">→ ${r.endLat.toFixed(5)}, ${r.endLon.toFixed(5)}</div>
+        <div class="row-card-meta">Bearing: ${Math.round(r.bearing)}° &nbsp;|&nbsp; Spacing: ${rowSpacing}cm</div>
+      </div>
+      <div class="row-dist">${Math.round(r.dist)}m</div>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════════════
+//  EXPORT CSV
+// ══════════════════════════════════════
+function exportCSV() {
+  if (rows.length === 0) { alert('No rows to export!'); return; }
+  let csv = 'Row,Start Lat,Start Lon,End Lat,End Lon,Length (m),Bearing (°),Spacing (cm)\n';
+  rows.forEach((r, i) => {
+    csv += `${i+1},${r.startLat.toFixed(7)},${r.startLon.toFixed(7)},${r.endLat.toFixed(7)},${r.endLon.toFixed(7)},${Math.round(r.dist)},${Math.round(r.bearing)},${rowSpacing}\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'farmline_rows_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ══════════════════════════════════════
+//  GEO MATH
+// ══════════════════════════════════════
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000, dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function bearing(lat1, lon1, lat2, lon2) {
+  const dLon = (lon2-lon1)*Math.PI/180;
+  const y = Math.sin(dLon)*Math.cos(lat2*Math.PI/180);
+  const x = Math.cos(lat1*Math.PI/180)*Math.sin(lat2*Math.PI/180) - Math.sin(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.cos(dLon);
+  return (Math.atan2(y,x)*180/Math.PI + 360) % 360;
+}
+
+function pointToSegmentDist(lat, lon, lat1, lon1, lat2, lon2) {
+  // Simplified: distance in meters from point to segment
+  const d1 = haversine(lat, lon, lat1, lon1);
+  const d2 = haversine(lat, lon, lat2, lon2);
+  const d3 = haversine(lat1, lon1, lat2, lon2);
+  // Project
+  const t = Math.max(0, Math.min(1, ((d1**2 + d3**2 - d2**2)/(2*d1*d3||1))));
+  const projLat = lat1 + t*(lat2-lat1), projLon = lon1 + t*(lon2-lon1);
+  return haversine(lat, lon, projLat, projLon);
+}
+
+// ══════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════
+resizeCanvas();
+draw();
+</script>
+</body>
+</html>
